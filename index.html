@@ -232,8 +232,9 @@
       tr.appendChild(uploadedTd);
 
       const actionTd=document.createElement("td");
-      const isDocx=(d.original_filename||"").toLowerCase().endsWith(".docx");
-      if(currentRole==="admin" && d.status==="pending" && isDocx){
+      const filename=(d.original_filename||"").toLowerCase();
+      const isSupported=filename.endsWith(".docx") || filename.endsWith(".pdf");
+      if(currentRole==="admin" && d.status==="pending" && isSupported){
         if(proc?.status==="completed"){
           const approveBtn=document.createElement("button");
           approveBtn.textContent="Godkend";
@@ -253,8 +254,8 @@
           btn.addEventListener("click",()=>processDocument(d.id,btn));
           actionTd.appendChild(btn);
         }
-      } else if(d.status==="pending" && !isDocx){
-        const note=document.createElement("span"); note.className="small"; note.textContent="DOCX først · PDF næste trin"; actionTd.appendChild(note);
+      } else if(d.status==="pending" && !isSupported){
+        const note=document.createElement("span"); note.className="small"; note.textContent="Behandling understøtter lige nu DOCX og PDF"; actionTd.appendChild(note);
       }
       tr.appendChild(actionTd);
       body.appendChild(tr);
@@ -368,7 +369,7 @@
     $("docTitle").value="";
     $("docDate").value="";
     $("uploadBtn").disabled=false;
-    status($("uploadStatus"),"Dokumentet er uploadet. Brug ‘Behandl’ i dokumentarkivet for at teste tekstudtræk og søgning.","ok");
+    status($("uploadStatus"),"Dokumentet er uploadet. Brug ‘Behandl’ i dokumentarkivet for at udtrække tekst og gøre dokumentet søgbart.","ok");
     await refreshData();
   }
 
