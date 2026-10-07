@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VandKompas v0.2</title>
+  <style>
+    :root{font-family:Inter,system-ui,Arial,sans-serif;color:#17202a;background:#f5f7f8}
+    *{box-sizing:border-box} body{margin:0}
+    header{background:#0d5c63;color:white;padding:20px 24px}
+    header h1{margin:0;font-size:24px} header p{margin:5px 0 0;opacity:.86}
+    main{max-width:1080px;margin:26px auto;padding:0 18px}
+    .card{background:white;border:1px solid #dce3e6;border-radius:12px;padding:18px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    .grow{flex:1 1 220px}.small{color:#66727a;font-size:13px}
+    label{display:block;font-size:13px;font-weight:650;margin-bottom:6px}
+    input,select,button{font:inherit}
+    input,select{width:100%;padding:10px;border:1px solid #bac6cc;border-radius:8px;background:white}
+    button{padding:10px 14px;border:0;border-radius:8px;background:#0d5c63;color:white;cursor:pointer;font-weight:650}
+    button.secondary{background:#e9eff1;color:#243238} button:disabled{opacity:.5;cursor:not-allowed}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #e7ecee;vertical-align:top}
+    th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#607078}
+    .pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#eaf3f4;font-size:12px}
+    .hidden{display:none!important}.metric{min-width:145px;padding:12px;border:1px solid #e1e7e9;border-radius:10px}
+    .metric b{display:block;font-size:24px}.section-title{margin:0 0 12px}
+    .status{padding:9px 12px;border-radius:8px;background:#f0f4f5;margin-top:10px}
+    .ok{color:#176b3a}.warn{color:#9a5b00}.bad{color:#a62626}
+  </style>
+</head>
+<body>
+<header>
+  <h1>VandKompas</h1>
+  <p>Prototype v0.2 · dokumenteret viden for vandværker</p>
+</header>
+
+<main>
+  <section id="loginCard" class="card">
+    <h2 class="section-title">Log ind</h2>
+    <p class="small">Brug den e-mailadresse, der er inviteret til vandværket. Du modtager et login-link på mail.</p>
+    <div class="row">
+      <div class="grow">
+        <label for="email">E-mail</label>
+        <input id="email" type="email" value="henrikfladkjaer@gmail.com" />
+      </div>
+      <button id="loginBtn">Send login-link</button>
+    </div>
+    <div id="loginStatus" class="status hidden"></div>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div><div class="small">Logget ind som</div><b id="userEmail"></b></div>
+        <button id="logoutBtn" class="secondary">Log ud</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title" id="waterworksName">Vandværk</h2>
+      <div class="row">
+        <div class="metric"><span class="small">Dokumenter</span><b id="docCount">–</b></div>
+        <div class="metric"><span class="small">Vandmålinger</span><b id="qualityCount">–</b></div>
+        <div class="metric"><span class="small">Takster</span><b id="tariffCount">–</b></div>
+        <div class="metric"><span class="small">Rolle</span><b id="roleText" style="font-size:18px">–</b></div>
+      </div>
+    </div>
+
+    <div class="card" id="uploadCard">
+      <h2 class="section-title">Upload dokument</h2>
+      <p class="small">Dokumentet gemmes privat. Nye uploads får status <b>pending</b>, indtil metadata og indhold er kontrolleret.</p>
+      <div class="row">
+        <div class="grow">
+          <label>Dokumenttype</label>
+          <select id="docType">
+            <option>Regulativ</option><option>Takstblad</option><option>Bestyrelsesreferat</option>
+            <option>Generalforsamlingsreferat</option><option>Vandprøve</option>
+            <option>Beredskabsplan</option><option>Vedtægter</option><option>Andet</option>
+          </select>
+        </div>
+        <div class="grow"><label>Titel</label><input id="docTitle" placeholder="Fx Takstblad 2026" /></div>
+        <div class="grow"><label>Dokumentdato</label><input id="docDate" type="date" /></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="grow"><label>Fil</label><input id="docFile" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" /></div>
+        <button id="uploadBtn">Upload</button>
+      </div>
+      <div id="uploadStatus" class="status hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Dokumentarkiv</h2>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>Titel</th><th>Type</th><th>År</th><th>Status</th><th>Behandling</th><th>Uploadet</th><th></th></tr></thead>
+          <tbody id="docsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Datakvalitet</h2>
+      <div id="qualitySummary" class="small">Indlæser…</div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+
+  const SUPABASE_URL = "https://ryarcwuntytyezmwefml.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_hCZgC_yY9PIHuJQyCN-cIQ_caWyU9rl";
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession:true, detectSessionInUrl:true }
+  });
+
+  const $ = (id) => document.getElementById(id);
+  let currentUser=null, currentWaterworks=null, currentRole=null;
+
+  function status(el,msg,kind="ok"){
+    el.textContent=msg;
+    el.className="status "+kind;
+  }
+  function safeName(s){
+    return s.normalize("NFKD").replace(/[^a-zA-Z0-9._-]+/g,"_").replace(/^_+|_+$/g,"").slice(0,120) || "file";
+  }
+  function slug(s){
+    return s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "andet";
+  }
+
+  async function sendMagicLink(){
+    const email=$("email").value.trim();
+    $("loginBtn").disabled=true;
+    const redirectTo=window.location.origin + "/";
+    const {error}=await supabase.auth.signInWithOtp({
+      email,
+      options:{emailRedirectTo:redirectTo,shouldCreateUser:false}
+    });
+    $("loginBtn").disabled=false;
+    if(error) status($("loginStatus"),"Kunne ikke sende login-link: "+error.message,"bad");
+    else status($("loginStatus"),"Login-link er sendt. Tjek din mail.","ok");
+  }
+
+  async function loadApp(session){
+    currentUser=session?.user;
+    if(!currentUser){
+      $("loginCard").classList.remove("hidden");
+      $("app").classList.add("hidden");
+      return;
+    }
+    $("loginCard").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    $("userEmail").textContent=currentUser.email||"";
+
+    const {data:members,error:mErr}=await supabase.from("waterworks_members")
+      .select("role, waterworks:waterworks_id(id,name,is_test)")
+      .eq("user_id",currentUser.id).eq("active",true).limit(1);
+
+    if(mErr || !members?.length){
+      $("waterworksName").textContent="Ingen vandværksadgang";
+      $("qualitySummary").textContent=mErr ? mErr.message : "Brugeren er ikke knyttet til et aktivt vandværk.";
+      $("uploadCard").classList.add("hidden");
+      return;
+    }
+
+    currentRole=members[0].role;
+    currentWaterworks=members[0].waterworks;
+    $("waterworksName").textContent=currentWaterworks.name+(currentWaterworks.is_test?" · TEST":"");
+    $("roleText").textContent=currentRole;
+    if(currentRole!=="admin") $("uploadCard").classList.add("hidden");
+    await refreshData();
+  }
+
+  async function refreshData(){
+    const wid=currentWaterworks.id;
+    const results = await Promise.all([
+      supabase.from("documents").select("id,title,document_type,year,status,uploaded_at,original_filename")
+        .eq("waterworks_id",wid).order("uploaded_at",{ascending:false}),
+      supabase.from("water_quality_measurements").select("*",{count:"exact",head:true}).eq("waterworks_id",wid),
+      supabase.from("tariffs").select("*",{count:"exact",head:true}).eq("waterworks_id",wid),
+      supabase.from("data_quality_issues").select("severity,status,description").eq("waterworks_id",wid).eq("status","open"),
+      supabase.from("document_upload_events")
+        .select("document_id,status,message,created_at")
+        .eq("waterworks_id",wid)
+        .eq("event_type","metadata_extracted")
+        .order("created_at",{ascending:false})
+    ]);
+
+    const docsResult=results[0], qResult=results[1], tResult=results[2], issuesResult=results[3], processingResult=results[4];
+    const docs=docsResult.data||[];
+    const latestProcessing=new Map();
+    (processingResult.data||[]).forEach(e=>{ if(!latestProcessing.has(e.document_id)) latestProcessing.set(e.document_id,e); });
+
+    if(docsResult.error){
+      $("qualitySummary").textContent="Fejl ved indlæsning: "+docsResult.error.message;
+      return;
+    }
+
+    $("docCount").textContent=docs.length;
+    $("qualityCount").textContent=qResult.count??0;
+    $("tariffCount").textContent=tResult.count??0;
+
+    const body=$("docsBody");
+    body.replaceChildren();
+    docs.forEach(d=>{
+      const tr=document.createElement("tr");
+
+      [d.title,d.document_type,d.year??"–",d.status].forEach((v,i)=>{
+        const td=document.createElement("td");
+        if(i===3){
+          const p=document.createElement("span");
+          p.className="pill"; p.textContent=v; td.appendChild(p);
+        } else td.textContent=String(v);
+        tr.appendChild(td);
+      });
+
+      const procTd=document.createElement("td");
+      const proc=latestProcessing.get(d.id);
+      if(proc?.status==="completed") {
+        const p=document.createElement("span"); p.className="pill ok"; p.textContent="Klar til godkendelse"; procTd.appendChild(p);
+        if(proc.message){ const m=document.createElement("div"); m.className="small"; m.textContent=proc.message; procTd.appendChild(m); }
+      } else if(proc?.status==="failed") {
+        const p=document.createElement("span"); p.className="pill bad"; p.textContent="Behandling fejlede"; procTd.appendChild(p);
+        if(proc.message){ const m=document.createElement("div"); m.className="small bad"; m.textContent=proc.message; procTd.appendChild(m); }
+      } else {
+        procTd.textContent=d.status==="pending" ? "Ikke behandlet" : "–";
+      }
+      tr.appendChild(procTd);
+
+      const uploadedTd=document.createElement("td");
+      uploadedTd.textContent=new Date(d.uploaded_at).toLocaleString("da-DK");
+      tr.appendChild(uploadedTd);
+
+      const actionTd=document.createElement("td");
+      const isDocx=(d.original_filename||"").toLowerCase().endsWith(".docx");
+      if(currentRole==="admin" && d.status==="pending" && isDocx){
+        if(proc?.status==="completed"){
+          const approveBtn=document.createElement("button");
+          approveBtn.textContent="Godkend";
+          approveBtn.addEventListener("click",()=>approveDocument(d.id,d.title,approveBtn));
+          actionTd.appendChild(approveBtn);
+
+          const retryBtn=document.createElement("button");
+          retryBtn.className="secondary";
+          retryBtn.style.marginLeft="8px";
+          retryBtn.textContent="Behandl igen";
+          retryBtn.addEventListener("click",()=>processDocument(d.id,retryBtn));
+          actionTd.appendChild(retryBtn);
+        } else {
+          const btn=document.createElement("button");
+          btn.className="secondary";
+          btn.textContent=proc?.status==="failed" ? "Prøv igen" : "Behandl";
+          btn.addEventListener("click",()=>processDocument(d.id,btn));
+          actionTd.appendChild(btn);
+        }
+      } else if(d.status==="pending" && !isDocx){
+        const note=document.createElement("span"); note.className="small"; note.textContent="DOCX først · PDF næste trin"; actionTd.appendChild(note);
+      }
+      tr.appendChild(actionTd);
+      body.appendChild(tr);
+    });
+
+    const pending=docs.filter(d=>d.status==="pending").length;
+    const current=docs.filter(d=>d.status==="current").length;
+    const openIssues=(issuesResult.data||[]).length;
+    $("qualitySummary").textContent=
+      "Gældende dokumenter: "+current+
+      ". Afventer godkendelse: "+pending+
+      ". Åbne datakvalitetsproblemer: "+openIssues+".";
+  }
+
+  async function processDocument(documentId,button){
+    const original=button.textContent;
+    button.disabled=true;
+    button.textContent="Behandler…";
+    try{
+      const {data,error}=await supabase.functions.invoke("process-document",{
+        body:{document_id:documentId}
+      });
+      if(error) throw error;
+      if(data?.error) throw new Error(data.error);
+      await refreshData();
+    }catch(e){
+      alert("Dokumentbehandling fejlede: "+(e?.message||String(e)));
+      button.disabled=false;
+      button.textContent=original;
+    }
+  }
+
+  async function approveDocument(documentId,title,button){
+    const ok=confirm("Godkend dokumentet ‘"+title+"’ som gældende kilde?\n\nEfter godkendelse skifter status fra Pending til Current.");
+    if(!ok) return;
+    const original=button.textContent;
+    button.disabled=true;
+    button.textContent="Godkender…";
+    try{
+      const {data,error}=await supabase.functions.invoke("approve-document",{
+        body:{document_id:documentId}
+      });
+      if(error) throw error;
+      if(data?.error) throw new Error(data.error);
+      await refreshData();
+    }catch(e){
+      alert("Godkendelse fejlede: "+(e?.message||String(e)));
+      button.disabled=false;
+      button.textContent=original;
+    }
+  }
+
+  async function uploadDocument(){
+    const file=$("docFile").files[0];
+    const title=$("docTitle").value.trim();
+    const type=$("docType").value;
+    const date=$("docDate").value||null;
+
+    if(!file || !title){
+      status($("uploadStatus"),"Vælg en fil og skriv en titel.","warn");
+      return;
+    }
+
+    $("uploadBtn").disabled=true;
+    status($("uploadStatus"),"Uploader…","ok");
+
+    const path=currentWaterworks.id+"/"+slug(type)+"/"+Date.now()+"_"+safeName(file.name);
+    const {error:uErr}=await supabase.storage.from("waterworks-documents").upload(
+      path,file,{contentType:file.type||undefined,upsert:false}
+    );
+
+    if(uErr){
+      $("uploadBtn").disabled=false;
+      status($("uploadStatus"),"Upload fejlede: "+uErr.message,"bad");
+      return;
+    }
+
+    const year=date ? Number(date.slice(0,4)) : new Date().getFullYear();
+    const {data:doc,error:dErr}=await supabase.from("documents").insert({
+      waterworks_id:currentWaterworks.id,
+      document_type:type,
+      title,
+      year,
+      document_date:date,
+      status:"pending",
+      source_authority:"waterworks",
+      storage_path:path,
+      original_filename:file.name,
+      mime_type:file.type||null,
+      uploaded_by:currentUser.id
+    }).select("id").single();
+
+    if(dErr){
+      await supabase.storage.from("waterworks-documents").remove([path]);
+      $("uploadBtn").disabled=false;
+      status($("uploadStatus"),"Metadata kunne ikke gemmes: "+dErr.message,"bad");
+      return;
+    }
+
+    await supabase.from("document_upload_events").insert({
+      waterworks_id:currentWaterworks.id,
+      document_id:doc.id,
+      storage_path:path,
+      event_type:"uploaded",
+      status:"completed",
+      created_by:currentUser.id,
+      completed_at:new Date().toISOString()
+    });
+
+    $("docFile").value="";
+    $("docTitle").value="";
+    $("docDate").value="";
+    $("uploadBtn").disabled=false;
+    status($("uploadStatus"),"Dokumentet er uploadet. Brug ‘Behandl’ i dokumentarkivet for at teste tekstudtræk og søgning.","ok");
+    await refreshData();
+  }
+
+  $("loginBtn").addEventListener("click",sendMagicLink);
+  $("logoutBtn").addEventListener("click",async()=>{await supabase.auth.signOut(); location.reload();});
+  $("uploadBtn").addEventListener("click",uploadDocument);
+
+  const {data:{session}}=await supabase.auth.getSession();
+  await loadApp(session);
+  supabase.auth.onAuthStateChange(async(_event,s)=>{ await loadApp(s); });
+</script>
+</body>
+</html>
