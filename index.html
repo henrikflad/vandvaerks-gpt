@@ -234,11 +234,25 @@
       const actionTd=document.createElement("td");
       const isDocx=(d.original_filename||"").toLowerCase().endsWith(".docx");
       if(currentRole==="admin" && d.status==="pending" && isDocx){
-        const btn=document.createElement("button");
-        btn.className="secondary";
-        btn.textContent=proc?.status==="failed" ? "Prøv igen" : (proc?.status==="completed" ? "Behandl igen" : "Behandl");
-        btn.addEventListener("click",()=>processDocument(d.id,btn));
-        actionTd.appendChild(btn);
+        if(proc?.status==="completed"){
+          const approveBtn=document.createElement("button");
+          approveBtn.textContent="Godkend";
+          approveBtn.addEventListener("click",()=>approveDocument(d.id,d.title,approveBtn));
+          actionTd.appendChild(approveBtn);
+
+          const retryBtn=document.createElement("button");
+          retryBtn.className="secondary";
+          retryBtn.style.marginLeft="8px";
+          retryBtn.textContent="Behandl igen";
+          retryBtn.addEventListener("click",()=>processDocument(d.id,retryBtn));
+          actionTd.appendChild(retryBtn);
+        } else {
+          const btn=document.createElement("button");
+          btn.className="secondary";
+          btn.textContent=proc?.status==="failed" ? "Prøv igen" : "Behandl";
+          btn.addEventListener("click",()=>processDocument(d.id,btn));
+          actionTd.appendChild(btn);
+        }
       } else if(d.status==="pending" && !isDocx){
         const note=document.createElement("span"); note.className="small"; note.textContent="DOCX først · PDF næste trin"; actionTd.appendChild(note);
       }
@@ -268,6 +282,26 @@
       await refreshData();
     }catch(e){
       alert("Dokumentbehandling fejlede: "+(e?.message||String(e)));
+      button.disabled=false;
+      button.textContent=original;
+    }
+  }
+
+  async function approveDocument(documentId,title,button){
+    const ok=confirm("Godkend dokumentet ‘"+title+"’ som gældende kilde?\n\nEfter godkendelse skifter status fra Pending til Current.");
+    if(!ok) return;
+    const original=button.textContent;
+    button.disabled=true;
+    button.textContent="Godkender…";
+    try{
+      const {data,error}=await supabase.functions.invoke("approve-document",{
+        body:{document_id:documentId}
+      });
+      if(error) throw error;
+      if(data?.error) throw new Error(data.error);
+      await refreshData();
+    }catch(e){
+      alert("Godkendelse fejlede: "+(e?.message||String(e)));
       button.disabled=false;
       button.textContent=original;
     }
