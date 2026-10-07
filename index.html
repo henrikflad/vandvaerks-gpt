@@ -376,9 +376,13 @@
     $("askBtn").disabled=true;
     status($("answerStatus"),"Finder dokumentation og formulerer svar…","ok");
     try{
-      const {data,error}=await supabase.functions.invoke("answer-question",{
+      const invokePromise=supabase.functions.invoke("answer-question",{
         body:{question,waterworks_id:currentWaterworks.id}
       });
+      const timeoutPromise=new Promise((_,reject)=>
+        setTimeout(()=>reject(new Error("Svaret tog for lang tid. Prøv igen.")),40000)
+      );
+      const {data,error}=await Promise.race([invokePromise,timeoutPromise]);
       if(error){
         let payload=null;
         try{ if(error.context && typeof error.context.json==="function") payload=await error.context.json(); }catch(_){ }
@@ -525,7 +529,10 @@
 
   const {data:{session}}=await supabase.auth.getSession();
   await loadApp(session);
-  supabase.auth.onAuthStateChange(async(_event,s)=>{ await loadApp(s); });
+  supabase.auth.onAuthStateChange((_event,s)=>{
+    // Do not await Supabase API calls inside this callback; that can deadlock supabase-js.
+    setTimeout(()=>{ loadApp(s).catch(err=>console.error("Auth refresh load failed",err)); },0);
+  });
 </script>
 </body>
 </html>
