@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>VandKompas v0.5</title>
+  <title>VandKompas v0.6</title>
   <style>
     :root{font-family:Inter,system-ui,Arial,sans-serif;color:#17202a;background:#f5f7f8}
     *{box-sizing:border-box} body{margin:0}
@@ -29,12 +29,16 @@
     .search-result{border:1px solid #e1e7e9;border-radius:10px;padding:12px;margin-top:10px;background:#fbfcfc}
     .search-result h3{margin:0 0 5px;font-size:16px}.search-meta{font-size:12px;color:#66727a;margin-bottom:8px}
     .search-excerpt{white-space:pre-wrap;line-height:1.45}
+    .answer-box{border-left:4px solid #0d5c63;background:#f7fbfb;border-radius:8px;padding:14px;margin-top:12px;white-space:pre-wrap;line-height:1.55}
+    .source-ref{font-weight:750;color:#0d5c63;margin-right:6px}
+    details.source{border:1px solid #e1e7e9;border-radius:9px;padding:10px 12px;margin-top:8px;background:#fbfcfc}
+    details.source summary{cursor:pointer;font-weight:650}
   </style>
 </head>
 <body>
 <header>
   <h1>VandKompas</h1>
-  <p>Prototype v0.5 · dokumenteret viden for vandværker</p>
+  <p>Prototype v0.6 · dokumenteret viden for vandværker</p>
 </header>
 
 <main>
@@ -67,6 +71,21 @@
         <div class="metric"><span class="small">Takster</span><b id="tariffCount">–</b></div>
         <div class="metric"><span class="small">Rolle</span><b id="roleText" style="font-size:18px">–</b></div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Spørg VandKompas</h2>
+      <p class="small">Svaret må kun bygge på godkendte dokumenter. Hvis kilderne ikke er tilstrækkelige, skal VandKompas sige, at svaret ikke kan dokumenteres.</p>
+      <div class="row">
+        <div class="grow">
+          <label for="questionInput">Spørgsmål</label>
+          <input id="questionInput" placeholder="Fx Hvad er formålet med budgetopfølgning?" />
+        </div>
+        <button id="askBtn">Få dokumenteret svar</button>
+      </div>
+      <div id="answerStatus" class="status hidden"></div>
+      <div id="answerBox" class="answer-box hidden"></div>
+      <div id="answerSources"></div>
     </div>
 
     <div class="card">
@@ -325,6 +344,62 @@
     }
   }
 
+  function renderAnswerSources(sources){
+    const host=$("answerSources");
+    host.replaceChildren();
+    (sources||[]).forEach((src)=>{
+      const details=document.createElement("details");
+      details.className="source";
+      const summary=document.createElement("summary");
+      const where=[src.document_type,src.page_number?"side "+src.page_number:null,src.section].filter(Boolean).join(" · ");
+      summary.textContent=src.ref+" · "+src.title+(where?" · "+where:"");
+      details.appendChild(summary);
+      const excerpt=document.createElement("div");
+      excerpt.className="search-excerpt";
+      excerpt.style.marginTop="8px";
+      excerpt.textContent=src.excerpt||"";
+      details.appendChild(excerpt);
+      host.appendChild(details);
+    });
+  }
+
+  async function askQuestion(){
+    const question=$("questionInput").value.trim();
+    $("answerBox").classList.add("hidden");
+    $("answerBox").textContent="";
+    $("answerSources").replaceChildren();
+    if(!question){
+      status($("answerStatus"),"Skriv et spørgsmål først.","warn");
+      return;
+    }
+
+    $("askBtn").disabled=true;
+    status($("answerStatus"),"Finder dokumentation og formulerer svar…","ok");
+    try{
+      const {data,error}=await supabase.functions.invoke("answer-question",{
+        body:{question,waterworks_id:currentWaterworks.id}
+      });
+      if(error){
+        let payload=null;
+        try{ if(error.context && typeof error.context.json==="function") payload=await error.context.json(); }catch(_){ }
+        if(payload?.code==="AI_NOT_CONFIGURED"){
+          renderAnswerSources(payload.sources||[]);
+          status($("answerStatus"),"AI-svaret er bygget klar, men OpenAI-nøglen mangler endnu i Supabase. Kilderne nedenfor er allerede fundet korrekt.","warn");
+          return;
+        }
+        throw new Error(payload?.error||error.message||"Ukendt fejl");
+      }
+      renderAnswerSources(data?.sources||[]);
+      $("answerBox").textContent=data?.answer||"Intet svar.";
+      $("answerBox").classList.remove("hidden");
+      status($("answerStatus"),(data?.sources||[]).length?"Svar baseret på "+data.sources.length+" fundne kildeuddrag.":"Ingen tilstrækkelig dokumentation fundet.",data?.documented===false?"warn":"ok");
+    }catch(e){
+      status($("answerStatus"),"Spørgsmålet kunne ikke besvares: "+(e?.message||String(e)),"bad");
+    }finally{
+      $("askBtn").disabled=false;
+    }
+  }
+
   async function searchDocuments(){
     const query=$("searchQuery").value.trim();
     const resultsEl=$("searchResults");
@@ -443,6 +518,8 @@
   $("loginBtn").addEventListener("click",sendMagicLink);
   $("logoutBtn").addEventListener("click",async()=>{await supabase.auth.signOut(); location.reload();});
   $("uploadBtn").addEventListener("click",uploadDocument);
+  $("askBtn").addEventListener("click",askQuestion);
+  $("questionInput").addEventListener("keydown",e=>{ if(e.key==="Enter") askQuestion(); });
   $("searchBtn").addEventListener("click",searchDocuments);
   $("searchQuery").addEventListener("keydown",e=>{ if(e.key==="Enter") searchDocuments(); });
 
